@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.pushctl"
-version = "0.1.0"
+version = System.getenv("RELEASE_VERSION") ?: "0.1.0"
 
 android {
     namespace = "com.pushctl.sdk"
@@ -72,6 +72,16 @@ publishing {
                         url.set("https://opensource.org/licenses/MIT")
                     }
                 }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/flowgistics/Pushctl-Android-SDK")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: providers.gradleProperty("gpr.user").orNull
+                password = System.getenv("GITHUB_TOKEN") ?: providers.gradleProperty("gpr.key").orNull
             }
         }
     }
