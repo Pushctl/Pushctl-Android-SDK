@@ -31,7 +31,7 @@ repositories {
 
 ```kotlin
 dependencies {
-    implementation("com.pushctl:pushctl-android:0.1.0")
+    implementation("com.pushctl:pushctl-android:0.1.1")
 }
 ```
 
@@ -82,6 +82,6 @@ The host app must apply the Google Services plugin and include its Firebase `goo
 Push a semantic-version tag to publish the Maven package and create a GitHub release:
 
 ```shell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```

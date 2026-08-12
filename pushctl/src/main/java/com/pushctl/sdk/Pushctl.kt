@@ -11,6 +11,7 @@ import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArraySet
@@ -46,8 +47,17 @@ object Pushctl {
         store = sdkStore
         client = PushctlApiClient(appContext, configuration, sdkStore)
         registerLifecycleCallbacks(appContext)
+        initializeFirebase(appContext)
         FirebaseMessaging.getInstance().register()
         client?.flush()
+    }
+
+    internal fun initializeFirebase(context: Context): FirebaseApp {
+        FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }?.let { return it }
+
+        return checkNotNull(FirebaseApp.initializeApp(context)) {
+            "Firebase could not be initialized. Add android/app/google-services.json and apply com.google.gms.google-services to the app module."
+        }
     }
 
     @JvmStatic
