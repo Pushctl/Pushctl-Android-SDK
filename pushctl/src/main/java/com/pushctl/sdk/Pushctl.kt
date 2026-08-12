@@ -8,12 +8,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
-import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArraySet
 
 object Pushctl {
@@ -48,7 +48,9 @@ object Pushctl {
         client = PushctlApiClient(appContext, configuration, sdkStore)
         registerLifecycleCallbacks(appContext)
         initializeFirebase(appContext)
-        FirebaseMessaging.getInstance().register()
+        FirebaseMessaging.getInstance().register().addOnFailureListener { error ->
+            Log.e(TAG, "Firebase Messaging registration failed", error)
+        }
         client?.flush()
     }
 
@@ -84,13 +86,14 @@ object Pushctl {
         require(externalUserId.isNotBlank()) { "externalUserId must not be blank" }
         val sdkStore = requireStore()
         sdkStore.externalUserId = externalUserId
-        client?.update(JSONObject().put("user_id", externalUserId))
+        sdkStore.pushToken?.let { client?.register(it) }
     }
 
     @JvmStatic
     fun logout() {
-        requireStore().externalUserId = null
-        client?.update(JSONObject().put("user_id", JSONObject.NULL))
+        val sdkStore = requireStore()
+        sdkStore.externalUserId = null
+        sdkStore.pushToken?.let { client?.register(it) }
     }
 
     @JvmStatic
@@ -194,4 +197,6 @@ object Pushctl {
             PushctlPermission.NOT_DETERMINED
         }
     }
+
+    private const val TAG = "Pushctl"
 }

@@ -1,5 +1,6 @@
 package com.pushctl.sdk
 
+import android.content.pm.PackageManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import org.junit.After
@@ -34,6 +35,17 @@ class PushctlFirebaseInitializationTest {
         )
 
         assertSame(firebaseApp, Pushctl.initializeFirebase(context))
+    }
+
+    @Test
+    fun `enables Firebase installation id messaging`() {
+        val context = RuntimeEnvironment.getApplication()
+        val applicationInfo = context.packageManager.getApplicationInfo(
+            context.packageName,
+            PackageManager.GET_META_DATA,
+        )
+
+        assertTrue(applicationInfo.metaData.getBoolean("firebase_messaging_installation_id_enabled"))
     }
 
     @Test

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.pushctl"
-version = System.getenv("RELEASE_VERSION") ?: "0.1.1"
+version = System.getenv("RELEASE_VERSION") ?: "0.1.2"
 
 android {
     namespace = "com.pushctl.sdk"
