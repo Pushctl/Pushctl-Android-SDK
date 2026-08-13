@@ -40,6 +40,40 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build signed Maven Central bundle
+        if: env.MAVEN_CENTRAL_USERNAME != ''
+        run: |
+          test -n "$MAVEN_CENTRAL_PASSWORD"
+          test -n "$SIGNING_KEY"
+          test -n "$SIGNING_PASSWORD"
+          ./gradlew publishReleasePublicationToMavenCentralStagingRepository
+          find pushctl/build/maven-central-staging -type f ! -name '*.md5' ! -name '*.sha1' ! -name '*.sha256' ! -name '*.sha512' -print0 | while IFS= read -r -d '' file; do
+            md5sum "$file" | awk '{print $1}' > "$file.md5"
+            sha1sum "$file" | awk '{print $1}' > "$file.sha1"
+            sha256sum "$file" | awk '{print $1}' > "$file.sha256"
+            sha512sum "$file" | awk '{print $1}' > "$file.sha512"
+          done
+          cd pushctl/build/maven-central-staging
+          zip -qr ../maven-central-bundle.zip com
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+      - name: Publish to Maven Central
+        if: env.MAVEN_CENTRAL_USERNAME != ''
+        run: |
+          AUTHORIZATION="$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w 0)"
+          curl --fail-with-body \
+            --request POST \
+            --header "Authorization: Bearer $AUTHORIZATION" \
+            --form "bundle=@pushctl/build/maven-central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=pushctl-android-$RELEASE_VERSION"
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+
       - name: Create GitHub release
         run: gh release create "$GITHUB_REF_NAME" pushctl/build/outputs/aar/pushctl-release.aar --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
         env:

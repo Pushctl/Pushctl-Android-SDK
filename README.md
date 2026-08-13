@@ -6,32 +6,11 @@ Create a **Client** token in Pushctl for the mobile app. Never embed a Full or S
 
 ## Install
 
-The private package is hosted in GitHub Packages. Create a GitHub personal access token (classic) with `read:packages`, then add these values to your user-level `~/.gradle/gradle.properties`:
-
-```properties
-gpr.user=YOUR_GITHUB_USERNAME
-gpr.key=YOUR_GITHUB_TOKEN
-```
-
-Add the private registry and package, then configure Firebase in the app as usual:
-
-```kotlin
-repositories {
-    google()
-    mavenCentral()
-    maven {
-        url = uri("https://maven.pkg.github.com/flowgistics/Pushctl-Android-SDK")
-        credentials {
-            username = providers.gradleProperty("gpr.user").orNull
-            password = providers.gradleProperty("gpr.key").orNull
-        }
-    }
-}
-```
+The SDK is published to Maven Central. Make sure `google()` and `mavenCentral()` are present in your dependency repositories, then configure Firebase in the app as usual.
 
 ```kotlin
 dependencies {
-    implementation("com.pushctl:pushctl-android:0.1.2")
+    implementation("com.pushctl:pushctl-android:0.2.0")
 }
 ```
 
@@ -79,9 +58,9 @@ The host app must apply the Google Services plugin and include its Firebase `goo
 
 ## Releasing
 
-Push a semantic-version tag to publish the Maven package and create a GitHub release:
+Push a semantic-version tag to publish the package to GitHub Packages and, when its signing and Central Portal secrets are configured, Maven Central. The workflow also creates a GitHub release:
 
 ```shell
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.2.0
+git push origin v0.2.0
 ```
