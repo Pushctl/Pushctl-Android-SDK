@@ -88,11 +88,42 @@ jobs:
       - name: Publish to Maven Central
         run: |
           AUTHORIZATION="$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w 0)"
-          curl --fail-with-body \
+          DEPLOYMENT_ID="$(curl --silent --show-error --fail-with-body \
             --request POST \
             --header "Authorization: Bearer $AUTHORIZATION" \
             --form "bundle=@pushctl/build/maven-central-bundle.zip" \
-            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=pushctl-android-$RELEASE_VERSION"
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=pushctl-android-$RELEASE_VERSION")"
+          [[ "$DEPLOYMENT_ID" =~ ^[0-9a-f-]{36}$ ]]
+          echo "MAVEN_CENTRAL_DEPLOYMENT_ID=$DEPLOYMENT_ID" >> "$GITHUB_ENV"
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+
+      - name: Wait for Maven Central publication
+        run: |
+          AUTHORIZATION="$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w 0)"
+          for ATTEMPT in {1..90}; do
+            RESPONSE="$(curl --silent --show-error --fail-with-body \
+              --request POST \
+              --header "Authorization: Bearer $AUTHORIZATION" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$MAVEN_CENTRAL_DEPLOYMENT_ID")"
+            DEPLOYMENT_STATE="$(jq --raw-output '.deploymentState' <<< "$RESPONSE")"
+            echo "Maven Central deployment state: $DEPLOYMENT_STATE"
+
+            if [[ "$DEPLOYMENT_STATE" == "PUBLISHED" ]]; then
+              exit 0
+            fi
+
+            if [[ "$DEPLOYMENT_STATE" == "FAILED" ]]; then
+              jq '.errors' <<< "$RESPONSE"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for Maven Central publication"
+          exit 1
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
