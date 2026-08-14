@@ -10,7 +10,7 @@ The SDK is published to Maven Central. Make sure `google()` and `mavenCentral()`
 
 ```kotlin
 dependencies {
-    implementation("com.pushctl:pushctl-android:0.2.0")
+    implementation("com.pushctl:pushctl-android:0.3.0")
 }
 ```
 
@@ -31,11 +31,27 @@ Ask for permission from an Activity when the timing is right:
 Pushctl.requestPermission(this)
 ```
 
-Associate the device with your signed-in user. Logging in again replaces the association; logout keeps the installation subscribed anonymously.
+Wait until Firebase registration has been confirmed by the Pushctl API before disabling another notification provider:
 
 ```kotlin
-Pushctl.login(user.id)
-Pushctl.logout()
+Pushctl.waitForRegistration { error ->
+    if (error == null) {
+        // Pushctl.subscriptionState().isRegistered is now true.
+    } else {
+        Log.e("Pushctl", "Registration failed", error)
+    }
+}
+```
+
+Registration changes are also available as listener callbacks. Associate the confirmed installation with your signed-in user only after readiness. Login and logout callbacks run after the API accepts the change and receive any error:
+
+```kotlin
+Pushctl.login(user.id) { error ->
+    if (error != null) Log.e("Pushctl", "Login failed", error)
+}
+Pushctl.logout { error ->
+    if (error != null) Log.e("Pushctl", "Logout failed", error)
+}
 ```
 
 Handle notification opens:
@@ -61,6 +77,6 @@ The host app must apply the Google Services plugin and include its Firebase `goo
 Push a semantic-version tag to publish the package to GitHub Packages and, when its signing and Central Portal secrets are configured, Maven Central. The workflow also creates a GitHub release:
 
 ```shell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```

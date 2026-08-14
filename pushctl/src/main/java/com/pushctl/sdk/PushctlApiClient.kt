@@ -106,7 +106,7 @@ internal class PushctlApiClient(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.2.0"
+        const val SDK_VERSION = "0.3.0"
 
         fun eventDateFormatter() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'+00:00'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")

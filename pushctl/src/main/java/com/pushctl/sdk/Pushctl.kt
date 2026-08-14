@@ -15,6 +15,9 @@ import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 object Pushctl {
     private const val PERMISSION_REQUEST_CODE = 9401
@@ -26,6 +29,10 @@ object Pushctl {
     @Volatile private var startedActivityCount = 0
     private val clickListeners = CopyOnWriteArraySet<PushctlNotificationListener>()
     private val foregroundListeners = CopyOnWriteArraySet<PushctlNotificationListener>()
+    private val registrationListeners = CopyOnWriteArraySet<PushctlRegistrationListener>()
+    private val registrationTimeoutExecutor = Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var registrationStatus = PushctlRegistrationStatus.UNREGISTERED
+    @Volatile private var lastRegistrationError: Throwable? = null
     private var pendingClick: PushctlNotification? = null
 
     @JvmStatic
@@ -46,11 +53,15 @@ object Pushctl {
         this.configuration = configuration
         store = sdkStore
         client = PushctlApiClient(appContext, configuration, sdkStore)
+        registrationStatus = if (sdkStore.isRegistered) PushctlRegistrationStatus.REGISTERED else PushctlRegistrationStatus.UNREGISTERED
+        lastRegistrationError = null
         registerLifecycleCallbacks(appContext)
         initializeFirebase(appContext)
         FirebaseMessaging.getInstance().register().addOnFailureListener { error ->
             Log.e(TAG, "Firebase Messaging registration failed", error)
+            reportRegistrationFailure(error)
         }
+        sdkStore.pushToken?.let(::setPushIdentifier)
         client?.flush()
     }
 
@@ -78,28 +89,101 @@ object Pushctl {
         val sdkStore = store ?: return
         if (sdkStore.permission == permission) return
         sdkStore.permission = permission
-        sdkStore.pushToken?.let { client?.register(it) }
+        sdkStore.pushToken?.let { setPushIdentifier(it, sdkStore.providerIdentifierType) }
     }
 
     @JvmStatic
-    fun login(externalUserId: String) {
+    fun login(externalUserId: String, callback: PushctlOperationCallback) {
         require(externalUserId.isNotBlank()) { "externalUserId must not be blank" }
         val sdkStore = requireStore()
-        sdkStore.externalUserId = externalUserId
-        sdkStore.pushToken?.let { client?.register(it) }
+        if (!sdkStore.isRegistered) {
+            callback.onComplete(PushctlRegistrationException("The installation has not been registered with Pushctl yet."))
+            return
+        }
+        client?.update(org.json.JSONObject().put("user_id", externalUserId)) { error ->
+            if (error == null) sdkStore.externalUserId = externalUserId
+            callback.onComplete(error)
+        }
     }
 
     @JvmStatic
-    fun logout() {
+    fun logout(callback: PushctlOperationCallback) {
         val sdkStore = requireStore()
-        sdkStore.externalUserId = null
-        sdkStore.pushToken?.let { client?.register(it) }
+        if (!sdkStore.isRegistered) {
+            callback.onComplete(PushctlRegistrationException("The installation has not been registered with Pushctl yet."))
+            return
+        }
+        client?.update(org.json.JSONObject().put("user_id", org.json.JSONObject.NULL)) { error ->
+            if (error == null) sdkStore.externalUserId = null
+            callback.onComplete(error)
+        }
     }
 
     @JvmStatic
     fun subscriptionState(): PushctlSubscriptionState {
         val sdkStore = requireStore()
-        return PushctlSubscriptionState(sdkStore.installationId, sdkStore.externalUserId, sdkStore.permission, sdkStore.pushToken)
+        return PushctlSubscriptionState(
+            sdkStore.installationId,
+            sdkStore.externalUserId,
+            sdkStore.permission,
+            sdkStore.pushToken,
+            registrationStatus,
+            lastRegistrationError?.localizedMessage,
+        )
+    }
+
+    @JvmStatic
+    fun addRegistrationListener(listener: PushctlRegistrationListener) = registrationListeners.add(listener)
+
+    @JvmStatic
+    fun removeRegistrationListener(listener: PushctlRegistrationListener) = registrationListeners.remove(listener)
+
+    @JvmStatic
+    @JvmOverloads
+    fun waitForRegistration(timeoutMillis: Long = 15_000, callback: PushctlOperationCallback) {
+        when (registrationStatus) {
+            PushctlRegistrationStatus.REGISTERED -> {
+                callback.onComplete(null)
+                return
+            }
+            PushctlRegistrationStatus.FAILED -> {
+                callback.onComplete(lastRegistrationError ?: PushctlRegistrationException("Pushctl registration failed."))
+                return
+            }
+            else -> Unit
+        }
+
+        val completed = AtomicBoolean(false)
+        val listener = object : PushctlRegistrationListener {
+            override fun onRegistered(state: PushctlSubscriptionState) {
+                if (completed.compareAndSet(false, true)) {
+                    removeRegistrationListener(this)
+                    callback.onComplete(null)
+                }
+            }
+
+            override fun onRegistrationFailed(error: Throwable) {
+                if (completed.compareAndSet(false, true)) {
+                    removeRegistrationListener(this)
+                    callback.onComplete(error)
+                }
+            }
+        }
+        addRegistrationListener(listener)
+        when (registrationStatus) {
+            PushctlRegistrationStatus.REGISTERED -> listener.onRegistered(subscriptionState())
+            PushctlRegistrationStatus.FAILED -> listener.onRegistrationFailed(
+                lastRegistrationError ?: PushctlRegistrationException("Pushctl registration failed."),
+            )
+            else -> Unit
+        }
+        registrationTimeoutExecutor.schedule({
+            if (completed.compareAndSet(false, true) && removeRegistrationListener(listener)) {
+                val error = PushctlRegistrationException("Timed out waiting for Firebase and confirmed Pushctl registration.")
+                reportRegistrationFailure(error)
+                callback.onComplete(error)
+            }
+        }, timeoutMillis, TimeUnit.MILLISECONDS)
     }
 
     @JvmStatic
@@ -131,9 +215,21 @@ object Pushctl {
 
     internal fun setPushIdentifier(identifier: String, type: String = "fcm_fid") {
         val sdkStore = store ?: return
+        if (sdkStore.pushToken != identifier) sdkStore.isRegistered = false
         sdkStore.providerIdentifierType = type
         sdkStore.pushToken = identifier
-        client?.register(identifier)
+        registrationStatus = PushctlRegistrationStatus.REGISTERING
+        lastRegistrationError = null
+        client?.register(identifier) { error ->
+            if (error == null) {
+                sdkStore.isRegistered = true
+                registrationStatus = PushctlRegistrationStatus.REGISTERED
+                val state = subscriptionState()
+                registrationListeners.forEach { it.onRegistered(state) }
+            } else {
+                reportRegistrationFailure(error)
+            }
+        }
     }
 
     internal fun report(type: PushctlEventType, notification: PushctlNotification) {
@@ -188,6 +284,13 @@ object Pushctl {
     }
 
     private fun requireStore(): PushctlStore = store ?: error("Call Pushctl.initialize() first")
+
+    private fun reportRegistrationFailure(error: Throwable) {
+        store?.isRegistered = false
+        registrationStatus = PushctlRegistrationStatus.FAILED
+        lastRegistrationError = error
+        registrationListeners.forEach { it.onRegistrationFailed(error) }
+    }
 
     private fun currentPermission(context: Context): PushctlPermission {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return PushctlPermission.DENIED

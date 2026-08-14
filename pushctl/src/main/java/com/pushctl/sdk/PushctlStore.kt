@@ -40,6 +40,10 @@ internal class PushctlStore(context: Context) {
         }.getOrDefault(PushctlPermission.UNKNOWN)
         set(value) = preferences.edit().putString(PERMISSION, value.name).apply()
 
+    var isRegistered: Boolean
+        get() = preferences.getBoolean(IS_REGISTERED, false)
+        set(value) = preferences.edit().putBoolean(IS_REGISTERED, value).apply()
+
     @Synchronized
     fun enqueueEvent(event: JSONObject) {
         val events = queuedEvents()
@@ -88,6 +92,7 @@ internal class PushctlStore(context: Context) {
         const val PUSH_TOKEN = "push_token"
         const val PROVIDER_IDENTIFIER_TYPE = "provider_identifier_type"
         const val PERMISSION = "permission"
+        const val IS_REGISTERED = "is_registered"
         const val EVENTS = "events"
         const val APPLICATION_KEY = "application_key"
         const val API_URL = "api_url"

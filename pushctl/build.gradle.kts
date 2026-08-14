@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.pushctl"
-version = System.getenv("RELEASE_VERSION") ?: "0.2.0"
+version = System.getenv("RELEASE_VERSION") ?: "0.3.0"
 
 val javadocJar by tasks.registering(Jar::class) {
     archiveClassifier.set("javadoc")
